@@ -13,16 +13,16 @@ st.sidebar.header("🔑 설정")
 dart_api_key = st.sidebar.text_input("OpenDART API Key", type="password")
 gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
 
-# 3. DART 기업 리스트 초기화 (캐싱 사용으로 속도 최적화)
+# 3. DART 기업 리스트 초기화 (수정됨: UI 코드 제거)
 @st.cache_resource
 def init_dart_list(api_key):
     try:
+        # 여기서는 오직 데이터만 가져옵니다. 화면 표시는 밖에서!
         dart.set_api_key(api_key=api_key)
-        st.toast("기업 리스트를 다운로드 중입니다... (최초 1회만 실행)", icon="⏳")
         corp_list = dart.get_corp_list()
         return corp_list
     except Exception as e:
-        return None
+        return NoneNone
 
 # 4. Gemini 분석 함수
 def get_ai_analysis(stock_name, text_data, api_key):
@@ -100,3 +100,4 @@ if dart_api_key and gemini_api_key:
         st.error("DART API 키를 확인해주세요.")
 else:
     st.info("👈 왼쪽 사이드바에 API 키를 먼저 입력해주세요.")
+
