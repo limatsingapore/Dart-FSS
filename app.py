@@ -6,14 +6,14 @@ from datetime import datetime
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="AI 공시 분석 에이전트", layout="wide")
-st.title("🤖 AI Stock Analyst (DART x Gemini)")
+st.title("Stock Analyst (DART x Gemini)")
 
 # 2. 사이드바 설정
 st.sidebar.header("🔑 설정")
 dart_api_key = st.sidebar.text_input("OpenDART API Key", type="password")
 gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
 
-# 3. DART 기업 리스트 초기화 (UI 코드 제거로 캐시 에러 해결)
+# 3. DART 기업 리스트 초기화
 @st.cache_resource
 def init_dart_list(api_key):
     try:
@@ -38,7 +38,7 @@ def get_ai_analysis(stock_name, text_data, api_key):
     3. 재무적인 숫자가 있다면 별도로 강조해주세요.
 
     [공시 데이터]
-    {text_data[:15000]} 
+    {text_data[:20000]} 
     """
     
     response = model.generate_content(prompt)
@@ -47,7 +47,6 @@ def get_ai_analysis(stock_name, text_data, api_key):
 # --- 메인 로직 ---
 
 if dart_api_key and gemini_api_key:
-    # 최초 로딩 시 스피너 표시
     if 'corp_list_loaded' not in st.session_state:
         with st.spinner("기업 리스트를 다운로드 중입니다... (1분 정도 소요)"):
             corp_list = init_dart_list(dart_api_key)
@@ -59,22 +58,18 @@ if dart_api_key and gemini_api_key:
         st.success("시스템 준비 완료!")
         
         with st.form("analysis_form"):
-            target_stock = st.text_input("분석할 종목명을 입력하세요 (예: 삼성전자)", "대우건설") # 기본값을 대우건설로 변경
+            target_stock = st.text_input("분석할 종목명을 입력하세요 (예: 삼성전자)", "대우건설")
             submitted = st.form_submit_button("🚀 분석 시작")
 
         if submitted:
             try:
                 with st.spinner(f"'{target_stock}'의 공시를 뒤지는 중입니다..."):
-                    # [수정된 부분] find_by_corp_name은 리스트를 반환하므로 처리 필요
                     found_corps = corp_list.find_by_corp_name(target_stock, exactly=True)
                     
                     if not found_corps:
                         st.error("종목을 찾을 수 없습니다. 정확한 회사명을 입력해주세요.")
                     else:
-                        # 리스트의 첫 번째 요소(실제 기업 객체)를 선택
                         target = found_corps[0]
-                        
-                        # 최근 3개월 공시 검색
                         start_date = (datetime.now() - pd.DateOffset(months=3)).strftime('%Y%m%d')
                         reports = target.search_filings(bgn_de=start_date, pblntf_detail_ty=['a001', 'a002', 'a003', 'i001', 'i002'])
 
@@ -82,17 +77,29 @@ if dart_api_key and gemini_api_key:
                             latest_report = reports[0]
                             st.info(f"검색된 최신 공시: **{latest_report.report_nm}** ({latest_report.rcept_dt})")
                             
-                            # 본문 추출
-                            extracted_text = latest_report.extract_text()
+                            # [수정된 부분] 페이지별로 텍스트 추출
+                            extracted_text = ""
+                            try:
+                                with st.spinner("공시 문서 본문을 가져오는 중입니다... (시간이 조금 걸릴 수 있습니다)"):
+                                    # pages 속성에 접근하면 자동으로 로딩됩니다.
+                                    for page in latest_report.pages:
+                                        extracted_text += page.text + "\n"
+                            except Exception as text_error:
+                                extracted_text = "텍스트 추출 실패 (이미지 문서일 가능성 있음)"
                             
-                            with st.spinner("Gemini가 보고서를 읽고 있습니다..."):
-                                analysis_result = get_ai_analysis(target_stock, extracted_text, gemini_api_key)
-                            
-                            st.subheader("📊 AI 분석 리포트")
-                            st.markdown(analysis_result)
-                            
-                            with st.expander("공시 원문 보기"):
-                                st.text(extracted_text[:3000] + "...")
+                            # Gemini 호출
+                            if len(extracted_text) > 50: # 내용이 있을 때만
+                                with st.spinner("Gemini가 보고서를 읽고 있습니다..."):
+                                    analysis_result = get_ai_analysis(target_stock, extracted_text, gemini_api_key)
+                                
+                                st.subheader("📊 AI 분석 리포트")
+                                st.markdown(analysis_result)
+                                
+                                with st.expander("공시 원문 보기"):
+                                    st.text(extracted_text[:3000] + "...")
+                            else:
+                                st.warning("공시 문서에서 텍스트를 읽어오지 못했습니다.")
+
                         else:
                             st.warning("최근 3개월 내 주요 공시가 없습니다.")
                             
