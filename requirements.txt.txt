@@ -1,0 +1,6 @@
+streamlit
+dart-fss
+google-generativeai
+pandas
+openpyxl
+lxml
