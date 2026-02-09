@@ -48,11 +48,13 @@ def get_ai_analysis(stock_name, text_data, api_key):
 # --- 메인 로직 시작 ---
 
 if dart_api_key and gemini_api_key:
-    # DART 리스트 로드
-    corp_list = init_dart_list(dart_api_key)
+    # DART 리스트 로드 (화면 알림을 밖으로 뺐습니다)
+    with st.spinner("기업 리스트를 다운로드 중입니다... (최초 1회 약 1분 소요)"):
+        corp_list = init_dart_list(dart_api_key)
     
     if corp_list:
         st.success("시스템 준비 완료!")
+        # ... (이후 코드는 동일)
         
         # 입력 폼
         with st.form("analysis_form"):
@@ -100,4 +102,5 @@ if dart_api_key and gemini_api_key:
         st.error("DART API 키를 확인해주세요.")
 else:
     st.info("👈 왼쪽 사이드바에 API 키를 먼저 입력해주세요.")
+
 
