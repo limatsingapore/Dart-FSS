@@ -6,7 +6,7 @@ from datetime import datetime
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="AI 공시 분석 에이전트", layout="wide")
-st.title("Stock Analyst (DART x Gemini)")
+st.title("🤖 AI Stock Analyst (DART x Gemini)")
 
 # 2. 사이드바 설정
 st.sidebar.header("🔑 설정")
@@ -24,23 +24,23 @@ def init_dart_list(api_key):
         return None
 
 # 4. Gemini 분석 함수
-def get_ai_analysis(stock_name, text_data, api_key):
+def get_ai_analysis(stock_name, report_title, text_data, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.0-flash') 
     
     prompt = f"""
-    당신은 20년 경력의 베테랑 펀드매니저입니다.
-    아래는 '{stock_name}'의 최근 전자공시 내용입니다.
+    당신은 주식 애널리스트입니다.
+    종목: '{stock_name}'
+    공시 제목: '{report_title}'
+    
+    [공시 내용 추출]
+    {text_data[:20000]} 
     
     [요청사항]
-    1. 이 공시의 핵심 내용을 3줄로 요약하세요.
-    2. 이 뉴스가 주가에 호재인지 악재인지 '호재/악재/중립' 중 하나로 판정하고 이유를 한 문장으로 쓰세요.
-    3. 재무적인 숫자가 있다면 별도로 강조해주세요.
-
-    [공시 데이터]
-    {text_data[:20000]} 
+    1. 위 공시의 핵심 내용을 3줄로 요약하세요. (내용이 부족하면 제목을 보고 추론하여 설명하세요)
+    2. 호재/악재/중립 여부를 판단하세요.
+    3. 실적 수치(매출액, 영업이익 등)가 있다면 반드시 포함하세요.
     """
-    
     response = model.generate_content(prompt)
     return response.text
 
@@ -67,44 +67,60 @@ if dart_api_key and gemini_api_key:
                     found_corps = corp_list.find_by_corp_name(target_stock, exactly=True)
                     
                     if not found_corps:
-                        st.error("종목을 찾을 수 없습니다. 정확한 회사명을 입력해주세요.")
+                        st.error("종목을 찾을 수 없습니다.")
                     else:
                         target = found_corps[0]
-                        start_date = (datetime.now() - pd.DateOffset(months=3)).strftime('%Y%m%d')
-                        reports = target.search_filings(bgn_de=start_date, pblntf_detail_ty=['a001', 'a002', 'a003', 'i001', 'i002'])
+                        # 기간을 조금 더 늘려서 확실한 문서를 찾아봅시다 (3개월 -> 6개월)
+                        start_date = (datetime.now() - pd.DateOffset(months=6)).strftime('%Y%m%d')
+                        reports = target.search_filings(bgn_de=start_date, pblntf_detail_ty=['a001', 'a002', 'a003', 'i001', 'i002', 'f001', 'f002'])
 
                         if reports:
                             latest_report = reports[0]
-                            st.info(f"검색된 최신 공시: **{latest_report.report_nm}** ({latest_report.rcept_dt})")
+                            report_url = f"http://dart.fss.or.kr/dsaf001/main.do?rcpNo={latest_report.rcp_no}"
                             
-                            # [수정된 부분] 페이지별로 텍스트 추출
+                            st.info(f"📌 최신 공시 발견: [{latest_report.report_nm}]({report_url}) \n(클릭하면 DART 원문으로 이동합니다)")
+                            
                             extracted_text = ""
+                            
+                            # 1단계: 텍스트 페이지 추출 시도
                             try:
-                                with st.spinner("공시 문서 본문을 가져오는 중입니다... (시간이 조금 걸릴 수 있습니다)"):
-                                    # pages 속성에 접근하면 자동으로 로딩됩니다.
+                                with st.spinner("문서 내용을 읽어오는 중..."):
                                     for page in latest_report.pages:
                                         extracted_text += page.text + "\n"
-                            except Exception as text_error:
-                                extracted_text = "텍스트 추출 실패 (이미지 문서일 가능성 있음)"
-                            
-                            # Gemini 호출
-                            if len(extracted_text) > 50: # 내용이 있을 때만
-                                with st.spinner("Gemini가 보고서를 읽고 있습니다..."):
-                                    analysis_result = get_ai_analysis(target_stock, extracted_text, gemini_api_key)
+                            except Exception as e:
+                                pass # 텍스트 실패 시 무시하고 다음 단계로
+
+                            # 2단계: 텍스트가 너무 적으면 '표(Table)' 추출 시도 (실적 공시 대비)
+                            if len(extracted_text) < 100:
+                                try:
+                                    # pages[0]에 있는 html 표라도 긁어오기 시도
+                                    if len(latest_report.pages) > 0:
+                                        extracted_text += "\n[표 데이터 추출 시도]\n" + latest_report.pages[0].html
+                                except:
+                                    pass
+
+                            # 결과 처리
+                            if len(extracted_text) > 50:
+                                with st.spinner("Gemini가 분석 중입니다..."):
+                                    analysis_result = get_ai_analysis(target_stock, latest_report.report_nm, extracted_text, gemini_api_key)
                                 
                                 st.subheader("📊 AI 분석 리포트")
                                 st.markdown(analysis_result)
-                                
-                                with st.expander("공시 원문 보기"):
-                                    st.text(extracted_text[:3000] + "...")
+                                with st.expander("추출된 원문 데이터 보기"):
+                                    st.text(extracted_text[:3000])
                             else:
-                                st.warning("공시 문서에서 텍스트를 읽어오지 못했습니다.")
+                                st.warning("⚠️ 공시 문서가 이미지나 단순 첨부파일로 되어 있어 텍스트를 읽을 수 없습니다.")
+                                st.markdown(f"**👉 [여기]({report_url})를 클릭해서 원문을 직접 확인해주세요.**")
+                                # 내용이 없어도 제목만으로라도 분석 요청
+                                if st.button("제목만으로라도 AI 분석 해보기"):
+                                    res = get_ai_analysis(target_stock, latest_report.report_nm, "내용 없음. 제목을 보고 추론할 것.", gemini_api_key)
+                                    st.markdown(res)
 
                         else:
-                            st.warning("최근 3개월 내 주요 공시가 없습니다.")
+                            st.warning("최근 6개월 내 주요 공시가 없습니다.")
                             
             except Exception as e:
-                st.error(f"오류가 발생했습니다: {e}")
+                st.error(f"상세 에러 내용: {e}")
     else:
         st.error("DART API 키를 확인해주세요.")
 else:
